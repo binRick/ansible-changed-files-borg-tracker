@@ -1,0 +1,139 @@
+---
+
+- name: Common
+  block:
+    - name: Ensure BORG_PHASE
+      when: "BORG_PHASE is not defined or (BORG_PHASE!='PRE_TASKS' and BORG_PHASE!='POST_TASKS')"
+      fail:
+        msg: "Variable BORG_PHASE must be set to PRE_TASKS OR POST_TASKS"
+    - name: Ensure Facts
+      when: ansible_date_time is not defined
+      setup:
+    - name: Set Base Facts
+      set_fact:
+        BORG_EXCLUDES: "--exclude /etc/exclude-test"
+    - name: Set Backup Json
+      set_fact:
+        PRE_TASKS_BASE: "{{ansible_date_time.epoch}}"
+    - name: Set Backup Json
+      set_fact:
+        TASK_NAMES:
+            PRE_TASKS: "{{PRE_TASKS_BASE}}-pre"
+            POST_TASKS: "{{PRE_TASKS_BASE}}-post"
+    - name: Set Backup Json
+      set_fact:
+        BORG_CREATE_CMD: "borg create {{BORG_EXCLUDES}} --filter=AME -x -s --json --list {{BORG_REPO}}::$REPO_NAME {{BORG_BACKUP_PATHS|join(' ')}}"
+        BORG_DIFF_CMD: "borg diff --numeric-owner --sort {{BORG_EXCLUDES}} {{BORG_REPO}}::{{TASK_NAMES.PRE_TASKS}} {{TASK_NAMES.POST_TASKS}}"
+
+    - name: Stat Borg Repo
+      register: br
+      stat: path={{BORG_REPO}}
+    - debug: var=BORG_PHASE
+      when: DEBUG_BORG is defined and DEBUG_BORG
+
+- name: Create Backup
+  block:
+    - name: Init Repo
+      when: not br.stat.exists
+      command: borg init -e repokey {{BORG_REPO}}
+
+    - debug: var=BORG_CREATE_CMD
+      when: DEBUG_BORG is defined and DEBUG_BORG
+
+#    - name: debug
+#      when: DEBUG_BORG is defined and DEBUG_BORG
+#      debug:
+#        var: "TASK_NAMES[BORG_PHASE]"
+
+    - name: Create Backup
+      environment:
+        REPO_NAME: "{{TASK_NAMES[BORG_PHASE]}}"
+      command: "{{BORG_CREATE_CMD}}"
+      register: _CB
+
+    - name: Set Backup Results
+      set_fact:
+        CB: "{{_CB.stdout|from_json}}"
+        LINES: "{{_CB.stderr_lines}}"
+        BORG_CHANGES: 
+            ADDED: "{{_CB.stderr_lines  | select('match', '^A ') | list| map('regex_replace', '^A ', '')|list }}"
+            MODIFIED: "{{_CB.stderr_lines  | select('match', '^M ') | list| map('regex_replace', '^M ', '')|list }}"
+            ERROR: "{{_CB.stderr_lines  | select('match', '^E ') | list| map('regex_replace', '^E ', '')|list }}"
+
+    - name: set msg
+      set_fact:
+        BORG_MSG: "{{BORG_CHANGES.ADDED|list|length + BORG_CHANGES.MODIFIED|list|length}}/{{CB.archive.stats.nfiles}} File Changes in directories {{BORG_BACKUP_PATHS|join(', ')}} after {{CB.archive.duration}} seconds."
+
+    - name: Debug Results
+      when: DEBUG_BORG is defined and DEBUG_BORG
+      block:
+        - debug: var=CB
+
+        - name: Debug Results
+          when: DEBUG_BORG is defined and DEBUG_BORG
+          debug:
+            msg: "{{BORG_MSG}}"
+
+        - debug: var=LINES
+          when: DEBUG_BORG is defined and DEBUG_BORG
+        - debug: var=BORG_CHANGES
+          when: DEBUG_BORG is defined and DEBUG_BORG
+
+    - name: set PRE_TASKS_REPORT
+      when: BORG_PHASE == 'PRE_TASKS'
+      set_fact:
+        PRE_TASKS_REPORT: 
+            state: success
+            msg: "{{BORG_MSG}}"
+            changes:
+                added: "{{BORG_CHANGES.ADDED}}"
+                modified: "{{BORG_CHANGES.MODIFIED}}"
+                error: "{{BORG_CHANGES.ERROR}}"
+            duration: "{{CB.archive.duration}}"
+            files: "{{CB.archive.stats.nfiles}}"
+            cmd: "{{BORG_CREATE_CMD}}"
+
+    - name: set POST_TASKS_REPORT
+      when: BORG_PHASE == 'POST_TASKS'
+      block:
+        - name: Debug diff cmd
+          debug: var=BORG_DIFF_CMD
+          when: DEBUG_BORG is defined and DEBUG_BORG
+        - name: Compare Repos
+          when: BORG_PHASE == 'POST_TASKS'
+          register: PT
+          command: "{{BORG_DIFF_CMD}}"
+        - debug: var=PT.stdout_lines
+          when: DEBUG_BORG is defined and DEBUG_BORG
+        - debug: var=PT.stderr_lines
+          when: DEBUG_BORG is defined and DEBUG_BORG
+        - name: record diff output to file
+          copy:
+            dest: /tmp/borg-backup.diff
+            content: "{{PT.stdout}}"
+            owner: root
+            group: root
+            mode: 0o600
+
+        - name: Execute parseBorgDiff.sh script
+          register: PBD
+          command: /root/parseBorgDiff.sh /tmp/borg-backup.diff
+
+        - name: debug Parser Results
+          debug: var=PBD.stdout
+
+        - name: set
+          set_fact:
+            PRE_TASKS_REPORT: 
+                state: success
+#REMOVED LINES
+#removed        29 B etc/.etc-test/10
+
+#CHHANGED, quantity of changed bytes:
+#    +29 B     -29 B etc/.etc-test/50a
+#
+#
+#    ADDED DIR
+#    added directory     etc/exclude-test
+#
+#

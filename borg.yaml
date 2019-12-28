@@ -1,0 +1,79 @@
+---
+- name: Borg
+  hosts: all
+  gather_facts: no
+  connection: local
+  become: yes
+  vars:
+    BORG_REPO: /root/.borg-ansible-backup2
+    BORG_BACKUP_PATHS: 
+        - /etc/
+        - /opt
+    TESTED_CHANGES: 10
+    TESTED_SUBDIR: .etc-test5
+    TESTS:
+        CHANGES: yes
+        ADDS: yes
+        REMOVES: no
+  environment:
+    BORG_PASSPHRASE: 123412345
+  pre_tasks:
+    - name: Import borg role
+      import_role:
+        name: borg
+        allow_duplicates: no
+      vars:
+        BORG_PHASE: PRE_TASKS
+    - debug: var=PRE_TASKS_REPORT
+
+  post_tasks:
+    - name: Import borg role
+      import_role:
+        name: borg
+        allow_duplicates: no
+      vars:
+        BORG_PHASE: POST_TASKS
+    - debug: var=POST_TASKS_REPORT
+
+  tasks:
+   - name: id test
+     command: id
+   - name: etc test
+     block:
+        - name: remove etc test dirs
+          when: TESTS.REMOVES
+          loop: 
+            - "/etc/{{TESTED_SUBDIR}}-adds"
+            - "/etc/{{TESTED_SUBDIR}}-removes"
+          file: 
+            path: "{{item}}"
+            state: absent
+
+        - name: create etc test dir
+          when: TESTS.ADDS
+          file: 
+            path: "/etc/{{TESTED_SUBDIR}}-adds"
+            state: directory
+            mode: 0o700 
+            owner: root
+            group: root
+
+        - name: create etc test dir
+          when: TESTS.CHANGES
+          file: 
+            path: "/etc/{{TESTED_SUBDIR}}-changes"
+            state: directory
+            mode: 0o700 
+            owner: root
+            group: root
+
+        - name: create etc test files
+          when: TESTS.ADDS and TESTED_CHANGES > 0
+          shell: "seq 1 {{TESTED_CHANGES}} | xargs -I % sh -c 'date > /etc/{{TESTED_SUBDIR}}-changes/{{ansible_date_time.epoch}}-%'"
+
+        - name: create etc test files
+          when: TESTS.CHANGES and TESTED_CHANGES > 0
+          shell: "seq 1 {{TESTED_CHANGES}} | xargs -I % sh -c 'date > /etc/{{TESTED_SUBDIR}}-changes/%'"
+
+
+
