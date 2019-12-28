@@ -3,7 +3,6 @@ set -e
 OUT_FILE=$1
 
 
-
 cat $OUT_FILE |tr -s ' '|grep '^removed [0-9]' \
     |cut -d' ' -f2,3,4 \
     > .REMOVED.txt
@@ -13,7 +12,6 @@ cat $OUT_FILE |tr -s ' '|grep '^removed directory ' \
 cat $OUT_FILE |tr -s ' '|grep '^added directory ' \
     |cut -d' ' -f1,3 \
     > .ADDED_DIRECTORY.txt
-
 cat $OUT_FILE |tr -s ' '|grep '^added [0-9]' \
     |cut -d' ' -f2,3,4 \
     > .ADDED.txt
@@ -53,23 +51,34 @@ consume_dirs .REMOVED.txt > .REMOVED.json
 changed_files .CHANGED.txt > .CHANGED.json
 
 
-#echo "$(wc -l .ADDED.txt|cut -d' ' -f1) Files Added."
-#echo "$(wc -l .ADDED_DIRECTORY.txt|cut -d' ' -f1) Directories Added."
-#cat .ADDED_DIRECTORY.json|jq
-#echo "$(wc -l .REMOVED.txt|cut -d' ' -f1) Files Removed."
-#echo "$(wc -l .REMOVED_DIRECTORY.txt|cut -d' ' -f1) Directories Removed."
-#cat .REMOVED_DIRECTORY.json|jq
-#echo "$(wc -l .CHANGED.txt|cut -d' ' -f1) Files Changed."
 
 qty(){
     wc -l $1|cut -d' ' -f1
 }
 
-jo -p \
-    files_added=$(qty .ADDED.txt) dirs_added=$(qty .ADDED_DIRECTORY.txt) \
+ jo -p \
     files_removed=$(qty .REMOVED.txt) dirs_removed=$(qty .REMOVED_DIRECTORY.txt) \
+    REMOVED_FILES=$(jo -a b=$(cat .REMOVED.txt |cut -d' ' -f3|xargs -I % echo "/%"|tr '\n' ' '))
+
+
+if [[ "1" == "0" ]]; then
+    files_added=$(qty .ADDED.txt) dirs_added=$(qty .ADDED_DIRECTORY.txt) \
     files_changed=$(qty .CHANGED.txt) \
     files_added_file=.ADDED.txt dirs_added_file=.REMOVED.txt \
     files_removed_file=.ADDED_DIRECTORY.txt dirs_removed_file=.REMOVED_DIRECTORY.txt \
-    files_changed=.CHANGED.txt \
-    files="$(jo -a .ADDED.txt .REMOVED.txt .REMOVED_DIRECTORY.txt .ADDED_DIRECTORY.txt .CHANGED.txt)"
+    files_changed_file=.CHANGED.txt \
+    files="$(jo -a .ADDED.txt .REMOVED.txt .REMOVED_DIRECTORY.txt .ADDED_DIRECTORY.txt .CHANGED.txt)" \
+    \
+    files_changed_b64="$(cat .CHANGED.txt | base64 -w0)" \
+    files_removed_b64="$(cat .REMOVED.txt | base64 -w0)" \
+    files_added_b64="$(cat .ADDED.txt | base64 -w0)" \
+    dirs_removed_b64="$(cat .REMOVED_DIRECTORY.txt | base64 -w0)" \
+    dirs_added_b64="$(cat .ADDED_DIRECTORY.txt | base64 -w0)" \
+    \
+    _files_changed_b64="$(cat .CHANGED.json | base64 -w0)" \
+    _files_removed_b64="$(cat .REMOVED.json | base64 -w0)" \
+    _files_added_b64="$(cat .ADDED.json | base64 -w0)" \
+    _dirs_removed_b64="$(cat .REMOVED_DIRECTORY.json | base64 -w0)" \
+    _dirs_added_b64="$(cat .ADDED_DIRECTORY.json | base64 -w0)"
+
+fi

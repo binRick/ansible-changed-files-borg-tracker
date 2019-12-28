@@ -12,6 +12,7 @@
     - name: Set Base Facts
       set_fact:
         BORG_EXCLUDES: "--exclude /etc/exclude-test"
+        BORG_LOCK_WAIT: 5
     - name: Set Backup Json
       set_fact:
         PRE_TASKS_BASE: "{{ansible_date_time.epoch}}"
@@ -22,8 +23,8 @@
             POST_TASKS: "{{PRE_TASKS_BASE}}-post"
     - name: Set Backup Json
       set_fact:
-        BORG_CREATE_CMD: "borg create {{BORG_EXCLUDES}} --filter=AME -x -s --json --list {{BORG_REPO}}::$REPO_NAME {{BORG_BACKUP_PATHS|join(' ')}}"
-        BORG_DIFF_CMD: "borg diff --numeric-owner --sort {{BORG_EXCLUDES}} {{BORG_REPO}}::{{TASK_NAMES.PRE_TASKS}} {{TASK_NAMES.POST_TASKS}}"
+        BORG_CREATE_CMD: "borg create {{BORG_EXCLUDES}} --lock-wait {{BORG_LOCK_WAIT}} --filter=AME -x -s --json --list {{BORG_REPO}}::$REPO_NAME {{BORG_BACKUP_PATHS|join(' ')}}"
+        BORG_DIFF_CMD: "borg diff --lock-wait {{BORG_LOCK_WAIT}} --numeric-owner --sort {{BORG_EXCLUDES}} {{BORG_REPO}}::{{TASK_NAMES.PRE_TASKS}} {{TASK_NAMES.POST_TASKS}}"
 
     - name: Stat Borg Repo
       register: br
@@ -39,11 +40,6 @@
 
     - debug: var=BORG_CREATE_CMD
       when: DEBUG_BORG is defined and DEBUG_BORG
-
-#    - name: debug
-#      when: DEBUG_BORG is defined and DEBUG_BORG
-#      debug:
-#        var: "TASK_NAMES[BORG_PHASE]"
 
     - name: Create Backup
       environment:
@@ -109,7 +105,7 @@
           when: DEBUG_BORG is defined and DEBUG_BORG
         - name: record diff output to file
           copy:
-            dest: /tmp/borg-backup.diff
+            dest: /root/.borg-backup.diff
             content: "{{PT.stdout}}"
             owner: root
             group: root
@@ -118,24 +114,27 @@
           copy: src=parseBorgDiff.sh dest=/root/parseBorgDiff.sh mode=0o700 owner=root group=root
         - name: Execute parseBorgDiff.sh script
           register: PBD
-          command: /root/parseBorgDiff.sh /tmp/borg-backup.diff
+          command: /root/parseBorgDiff.sh /root/.borg-backup.diff
 
         - name: debug Parser Results
           debug: var=PBD.stdout
 
+
         - name: set
           set_fact:
-            PRE_TASKS_REPORT: 
+            PARSED: "{{PBD.stdout|from_json}}"
+        - name: set
+          set_fact:
+            POST_TASKS_REPORT: 
                 state: success
-                parsed: "{{PBD.stdout|from_json}}"
-#REMOVED LINES
-#removed        29 B etc/.etc-test/10
-
-#CHHANGED, quantity of changed bytes:
-#    +29 B     -29 B etc/.etc-test/50a
-#
-#
-#    ADDED DIR
-#    added directory     etc/exclude-test
-#
-#
+#                parsed: "{{PBD.stdout|from_json}}"
+#                files_added: "{{PARSED.files_added}}"
+#                files_removed: "{{PARSED.files_removed}}"
+#                dirs_removed: "{{PARSED.dirs_removed}}"
+#                dirs_added: "{{PARSED.dirs_added}}"
+#                files_changed: "{{PARSED.files_changed}}"
+#                files_changed_b64: "{{PARSED._files_changed_b64|b64decode}}"
+#                files_removed_b64: "{{PARSED._files_removed_b64|b64decode}}"
+#                files_added_b64: "{{PARSED._files_added_b64|b64decode}}"
+#                dirs_removed_b64: "{{PARSED._dirs_removed_b64|b64decode}}"
+#                dirs_added_b64: "{{PARSED._dirs_added_b64|b64decode}}"
