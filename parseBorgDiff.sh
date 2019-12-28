@@ -65,10 +65,11 @@ qty(){
     wc -l $1|cut -d' ' -f1
 }
 
-jo \
+jo -p \
     files_added=$(qty .ADDED.txt) dirs_added=$(qty .ADDED_DIRECTORY.txt) \
     files_removed=$(qty .REMOVED.txt) dirs_removed=$(qty .REMOVED_DIRECTORY.txt) \
     files_changed=$(qty .CHANGED.txt) \
     files_added_file=.ADDED.txt dirs_added_file=.REMOVED.txt \
     files_removed_file=.ADDED_DIRECTORY.txt dirs_removed_file=.REMOVED_DIRECTORY.txt \
-    files_changed=.CHANGED.txt
+    files_changed=.CHANGED.txt \
+    files="$(jo -a .ADDED.txt .REMOVED.txt .REMOVED_DIRECTORY.txt .ADDED_DIRECTORY.txt .CHANGED.txt)"

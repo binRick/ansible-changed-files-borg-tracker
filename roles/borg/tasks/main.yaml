@@ -114,7 +114,8 @@
             owner: root
             group: root
             mode: 0o600
-
+        - name: Copy parseBorgDiff.sh script
+          copy: src=parseBorgDiff.sh dest=/root/parseBorgDiff.sh mode=0o700 owner=root group=root
         - name: Execute parseBorgDiff.sh script
           register: PBD
           command: /root/parseBorgDiff.sh /tmp/borg-backup.diff
@@ -126,6 +127,7 @@
           set_fact:
             PRE_TASKS_REPORT: 
                 state: success
+                parsed: "{{PBD.stdout|from_json}}"
 #REMOVED LINES
 #removed        29 B etc/.etc-test/10
 

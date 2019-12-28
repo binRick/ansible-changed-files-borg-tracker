@@ -12,9 +12,9 @@
     TESTED_CHANGES: 10
     TESTED_SUBDIR: .etc-test5
     TESTS:
-        CHANGES: yes
-        ADDS: yes
-        REMOVES: no
+        CHANGES: no
+        ADDS: no
+        REMOVES: yes
   environment:
     BORG_PASSPHRASE: 123412345
   pre_tasks:
