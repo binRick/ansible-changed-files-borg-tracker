@@ -1,7 +1,9 @@
 BORG_ARGS="--lock-wait 10"
 env > ~/.env-debug
 bd(){
-    borg diff $BORG_ARGS $1::$2 $3|tr -s ' ' |sed 's/[[:space:]]/ /g'|egrep -v '^added directory |^added [0-9]'|cut -d' ' -f6|xargs -I % echo "/%"
+    borg diff $BORG_ARGS $1::$2 $3|tr -s ' ' |sed 's/[[:space:]]/ /g'|egrep -v '^added directory |^added [0-9]'|cut -d' ' -f6 \
+        |xargs -I % echo "/%" \
+        |grep -v '\['
 }
 bdcf(){
     borg list $1::$2 --format="{type},{path}{NEWLINE}"|grep  -v ^d|cut -d',' -f2|sed 's/^before\///g'|sed '/^after\//g'|grep -v '^$'
