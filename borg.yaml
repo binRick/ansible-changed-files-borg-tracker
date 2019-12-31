@@ -12,8 +12,8 @@
     TESTED_CHANGES: 3
     TESTED_SUBDIR: .etc-test11
     TESTS:
-        CHANGES: no
-        ADDS: no
+        CHANGES: yes
+        ADDS: yes
         REMOVES: yes
   environment:
     BORG_PASSPHRASE: 123412345

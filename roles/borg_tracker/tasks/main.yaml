@@ -1,4 +1,7 @@
 ---
+##
+
+
 
 - name: Common
   block:
@@ -11,20 +14,35 @@
       setup:
     - name: Set Base Facts
       set_fact:
-        BORG_EXCLUDES: "--exclude /etc/exclude-test"
+        BORG_EXCLUDES: >
+            --exclude /etc/selinux 
+            --exclude /etc/exclude-test 
+            --exclude /usr/src/kernels 
+            {{BORG_EXCLUDES|default('')}}
         BORG_LOCK_WAIT: 5
+        BORG_BACKUP_PATHS_HASH: "{{BORG_BACKUP_PATHS|to_json|md5}}"
+
     - name: Set Backup Json
       set_fact:
-        PRE_TASKS_BASE: "{{ansible_date_time.epoch}}"
+        PRE_TASKS_BASE: "tracker-{{BORG_BACKUP_PATHS_HASH}}"
+
+    - debug: var=BORG_BACKUP_PATHS_HASH
+
     - name: Set Backup Json
       set_fact:
+        BORG_QUOTA_GB: 5
         TASK_NAMES:
             PRE_TASKS: "{{PRE_TASKS_BASE}}-pre"
             POST_TASKS: "{{PRE_TASKS_BASE}}-post"
+            INITIAL: "{{PRE_TASKS_BASE}}-initial"
     - name: Set Backup Json
       set_fact:
+        BORG_LIST_REPO_NAMES_CMD: "borg list --lock-wait {{BORG_LOCK_WAIT}} {{BORG_REPO}} --format=\"{name}{NEWLINE}\""
+        BORG_PRUNE_CMD: "borg prune --lock-wait {{BORG_LOCK_WAIT}} --keep-within 1d {{BORG_REPO}}"
         BORG_CREATE_CMD: "borg create {{BORG_EXCLUDES}} --lock-wait {{BORG_LOCK_WAIT}} --filter=AME -x -s --json --list {{BORG_REPO}}::$REPO_NAME {{BORG_BACKUP_PATHS|join(' ')}}"
+        BORG_DELETE_CMD: "borg delete --lock-wait {{BORG_LOCK_WAIT}} {{BORG_REPO}}::$REPO_NAME"
         BORG_DIFF_CMD: "borg diff --lock-wait {{BORG_LOCK_WAIT}} --numeric-owner --sort {{BORG_EXCLUDES}} {{BORG_REPO}}::{{TASK_NAMES.PRE_TASKS}} {{TASK_NAMES.POST_TASKS}}"
+        BORG_INIT_CMD: "borg init --storage-quota {{BORG_QUOTA_GB}}G -e repokey {{BORG_REPO}}"
 
     - name: Stat Borg Repo
       register: br
@@ -32,11 +50,74 @@
     - debug: var=BORG_PHASE
       when: DEBUG_BORG is defined and DEBUG_BORG
 
+- name: Ensure Borg Binary
+  when: 
+    - BORG_PHASE == 'PRE_TASKS'
+  block:
+    - name: Find borg in path
+      ignore_errors: yes
+      register: bip
+      command: command -v borg
+
+    - name: Download borg release to /bin
+      when: bip is failed
+      get_url: 
+        url: https://github.com/borgbackup/borg/releases/download/1.1.10/borg-linux64
+        dest: /bin/borg
+        mode: 0o755
+        owner: root
+        group: root
+
+    - name: Find borg in path
+      when: bip is failed
+      register: bip
+      command: command -v borg
+
+    - name: Find borg version
+      register: bv
+      command: borg --version
+
+    - name: Debug borg version
+      debug:
+        msg: "Server has borg version {{bv.stdout}}}"
+
 - name: Create Backup
   block:
     - name: Init Repo
+      register:  init
       when: not br.stat.exists
-      command: borg init -e repokey {{BORG_REPO}}
+      command: "{{BORG_INIT_CMD}}"
+
+#    - name: Prune Repo
+#      command: "{{BORG_PRUNE_CMD}}"
+
+    - name: list repo names
+      command: "{{BORG_LIST_REPO_NAMES_CMD}}"
+      register: rn
+
+    - name: debug rn
+      debug: var=rn.stdout_lines
+
+    - name: delete existing trackers
+      when: 
+        - BORG_PHASE == 'PRE_TASKS'
+        - item in rn.stdout_lines
+      loop: 
+        - "{{TASK_NAMES.PRE_TASKS}}"
+        - "{{TASK_NAMES.POST_TASKS}}"
+      command: "{{BORG_DELETE_CMD}}"
+      environment:
+        REPO_NAME: "{{item}}"
+
+    - name: Create initial repo
+      when: not TASK_NAMES.INITIAL in rn.stdout_lines
+      ignore_errors: yes
+      command: "{{BORG_CREATE_CMD}}"
+      environment:
+        REPO_NAME: "{{TASK_NAMES.INITIAL}}"
+
+
+
 
     - debug: var=BORG_CREATE_CMD
       when: DEBUG_BORG is defined and DEBUG_BORG
@@ -64,6 +145,7 @@
       when: DEBUG_BORG is defined and DEBUG_BORG
       block:
         - debug: var=CB
+          when: DEBUG_BORG is defined and DEBUG_BORG
 
         - name: Debug Results
           when: DEBUG_BORG is defined and DEBUG_BORG
@@ -92,17 +174,24 @@
     - name: set POST_TASKS_REPORT
       when: BORG_PHASE == 'POST_TASKS'
       block:
+        - name: Copy parseBorgDiff.sh script
+          loop:
+            - parseBorgDiff.sh
+            - borg-common.sh
+          copy: src={{item}} dest=/root/{{item}} mode=0o700 owner=root group=root
         - name: Debug diff cmd
           debug: var=BORG_DIFF_CMD
           when: DEBUG_BORG is defined and DEBUG_BORG
+
         - name: Compare Repos
           when: BORG_PHASE == 'POST_TASKS'
           register: PT
           command: "{{BORG_DIFF_CMD}}"
-        - debug: var=PT.stdout_lines
-          when: DEBUG_BORG is defined and DEBUG_BORG
-        - debug: var=PT.stderr_lines
-          when: DEBUG_BORG is defined and DEBUG_BORG
+
+#        - debug: var=PT.stdout_lines
+#          when: DEBUG_BORG is defined and DEBUG_BORG
+#        - debug: var=PT.stderr_lines
+#          when: DEBUG_BORG is defined and DEBUG_BORG
         - name: record diff output to file
           copy:
             dest: /root/.borg-backup.diff
@@ -110,19 +199,56 @@
             owner: root
             group: root
             mode: 0o600
-        - name: Copy parseBorgDiff.sh script
-          copy: src=parseBorgDiff.sh dest=/root/parseBorgDiff.sh mode=0o700 owner=root group=root
+
+
         - name: Execute parseBorgDiff.sh script
+          ignore_errors: yes
           register: PBD
           command: /root/parseBorgDiff.sh /root/.borg-backup.diff
 
         - name: debug Parser Results
+          when: DEBUG_BORG is defined and DEBUG_BORG
           debug: var=PBD.stdout
+
+        - name: Execute bd
+          register: BD
+          shell: source /root/borg-common.sh && bd {{BORG_REPO}} {{TASK_NAMES.PRE_TASKS}} {{TASK_NAMES.POST_TASKS}}
+
+        - name: debug BD
+          when: DEBUG_BORG is defined and DEBUG_BORG
+          debug: var=BD.stdout
+
+        - name: dev
+          block:
+            - name: Execute bdd record
+              register: BDD
+              ignore_errors: yes
+              shell: source /root/borg-common.sh && bdd {{BORG_REPO}} {{TASK_NAMES.PRE_TASKS}} {{TASK_NAMES.POST_TASKS}} record
+
+            - name: debug BDD
+              when: DEBUG_BORG is defined and DEBUG_BORG
+              debug: var=BDD.stdout
+
+        - name: dev
+          when: BORG_BDD is defined and BORG_BDD
+          block:
+            - name: Execute bdd delete
+              register: BDD_delete
+              ignore_errors: yes
+              when: 
+                - BDD is success
+                - no
+              shell: source /root/borg-common.sh && bdd {{BORG_REPO}} {{TASK_NAMES.PRE_TASKS}} {{TASK_NAMES.POST_TASKS}} delete
+
+            - name: debug BDD_delete
+              when: DEBUG_BORG is defined and DEBUG_BORG
+              debug: var=BDD_delete.stdout
 
 
         - name: set
           set_fact:
             PARSED: "{{PBD.stdout|from_json}}"
+
         - name: set
           set_fact:
             POST_TASKS_REPORT: 

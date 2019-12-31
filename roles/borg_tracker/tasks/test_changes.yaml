@@ -1,0 +1,37 @@
+---
+   - name: Borg Tracker Changes Test
+     block:
+
+        - name: create adds etc test dirs
+          when: not TESTS.ADDS
+          loop:
+            - "/etc/{{TESTED_SUBDIR}}-adds"
+          file:
+            path: "{{item}}"
+            state: directory
+
+        - name: create changes etc test dirs
+          when: not TESTS.CHANGES
+          loop:
+            - "/etc/{{TESTED_SUBDIR}}-changed"
+          file:
+            path: "{{item}}"
+            state: directory
+
+
+        - name: create etc test files
+          when: TESTS.ADDS and TESTED_ADDS > 0
+          shell: "seq 1 {{TESTED_ADDS}} | xargs -I % sh -c 'date > /etc/{{TESTED_SUBDIR}}-adds/{{ansible_date_time.epoch}}-%'"
+
+        - name: create etc test files
+          when: TESTS.CHANGES and TESTED_CHANGES > 0
+          shell: "seq 1 {{TESTED_CHANGES}} | xargs -I % sh -c 'date > /etc/{{TESTED_SUBDIR}}-changes/%'"
+
+        - name: remove etc test dirs
+          when: TESTS.REMOVES
+          loop:
+            - "/etc/{{TESTED_SUBDIR}}-adds"
+            - "/etc/{{TESTED_SUBDIR}}-changed"
+          file:
+            path: "{{item}}"
+            state: absent
